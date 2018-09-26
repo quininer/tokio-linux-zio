@@ -1,0 +1,9 @@
+[package]
+name = "tokio-linux-io"
+version = "0.1.0"
+authors = ["quininer <quininer@live.com>"]
+edition = "2018"
+
+[dependencies]
+tokio = "0.1"
+nix = "0.11"
