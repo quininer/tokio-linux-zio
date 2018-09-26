@@ -15,8 +15,9 @@ enum State<IO> {
     Writing {
         io: IO,
         fd: fs::File,
-        offset: off_t,
-        count: size_t
+        offset: Option<off_t>,
+        count: size_t,
+        sum: usize
     },
     End
 }
@@ -41,13 +42,17 @@ where
         }
     };
 
-    let offset = offset as _;
+    let offset = Some(offset as _);
 
-    SendFile(Ok(State::Writing { io, fd, offset, count }))
+    SendFile(Ok(State::Writing { io, fd, offset, count, sum: 0 }))
+}
+
+pub fn full_sendfile<IO>(io: IO, fd: fs::File, offset: Option<off_t>, count: size_t) -> SendFile<IO> {
+    SendFile(Ok(State::Writing { io, fd, offset, count, sum: 0 }))
 }
 
 impl<IO: AsRawFd> Future for SendFile<IO> {
-    type Item = (IO, fs::File);
+    type Item = (IO, fs::File, usize);
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
@@ -56,11 +61,15 @@ impl<IO: AsRawFd> Future for SendFile<IO> {
         }
 
         match self.0.as_mut() {
-            Ok(State::Writing { io, fd, ref mut offset, ref mut count }) => while *count > 0 {
-                match nix_sendfile(io.as_raw_fd(), fd.as_raw_fd(), Some(offset), *count)
+            Ok(State::Writing { io, fd, ref mut offset, ref mut count, ref mut sum }) => while *count > 0 {
+                match nix_sendfile(io.as_raw_fd(), fd.as_raw_fd(), offset.as_mut(), *count)
                     .map_err(io_err)
                 {
-                    Ok(n) => *count -= n,
+                    Ok(0) => break,
+                    Ok(n) => {
+                        *count -= n;
+                        *sum += n;
+                    },
                     Err(ref err) if io::ErrorKind::WouldBlock == err.kind()
                         => return Ok(Async::NotReady),
                     Err(err) => return Err(err)
@@ -70,7 +79,7 @@ impl<IO: AsRawFd> Future for SendFile<IO> {
         }
 
         match mem::replace(&mut self.0, Ok(State::End)) {
-            Ok(State::Writing { io, fd, .. }) => Ok((io, fd).into()),
+            Ok(State::Writing { io, fd, sum, .. }) => Ok((io, fd, sum).into()),
             _ => panic!()
         }
     }
