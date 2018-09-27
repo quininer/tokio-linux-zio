@@ -1,7 +1,7 @@
 use std::thread;
 use std::sync::mpsc::channel;
 use std::net::SocketAddr;
-use std::os::unix::io::{ AsRawFd, RawFd };
+use std::os::unix::io::AsRawFd;
 use lazy_static::lazy_static;
 use tokio::prelude::*;
 use tokio::net::{ TcpListener, TcpStream };
@@ -43,28 +43,21 @@ fn run_server() -> SocketAddr {
     *TEST_SERVER
 }
 
-struct Pipe(RawFd);
-
-impl AsRawFd for Pipe {
-    fn as_raw_fd(&self) -> RawFd {
-        self.0
-    }
-}
 
 #[test]
 fn test_socket_splice() {
     let addr = run_server();
 
-    let (pr, pw) = unistd::pipe().unwrap();
+    let (pr, pw) = zio::Pipe::new().unwrap();
 
     let done = TcpStream::connect(&addr)
         .and_then(|stream| aio::write_all(stream, b"\x0cHello world!"))
-        .and_then(|(stream, _)| zio::splice(stream, Pipe(pw)))
+        .and_then(|(stream, _)| zio::splice(stream, pw))
         .map(|(.., len)| len);
 
     let len = current_thread::block_on_all(done).unwrap();
 
     let mut buf = vec![0; len];
-    unistd::read(pr, &mut buf).unwrap();
+    unistd::read(pr.as_raw_fd(), &mut buf).unwrap();
     assert_eq!(buf, b"Hello world!");
 }
