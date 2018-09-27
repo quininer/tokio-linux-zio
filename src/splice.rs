@@ -1,4 +1,4 @@
-use std::{ mem, io };
+use std::{ cmp, mem, io };
 use std::os::unix::io::AsRawFd;
 use tokio::prelude::*;
 use nix::libc::{ PIPE_BUF, loff_t };
@@ -6,8 +6,10 @@ use nix::fcntl::{ SpliceFFlags, splice as nix_splice };
 use crate::common::io_err;
 
 
+#[derive(Debug)]
 pub struct Splice<R, W>(State<R, W>);
 
+#[derive(Debug)]
 enum State<R, W> {
     Writing {
         reader: R,
@@ -60,10 +62,11 @@ impl<R: AsRawFd, W: AsRawFd> Future for Splice<R, W> {
                 buff_len, ref mut len, flags,
                 ref mut sum
             } => while len != &Some(0) {
+                let len2 = cmp::min(buff_len, len.unwrap_or(buff_len));
                 match nix_splice(
                     reader.as_raw_fd(), off_in.as_mut(),
                     writer.as_raw_fd(), off_out.as_mut(),
-                    buff_len, flags
+                    len2, flags
                 ).map_err(io_err) {
                     Ok(0) => break,
                     Ok(n) => {
