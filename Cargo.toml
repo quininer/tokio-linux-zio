@@ -1,7 +1,10 @@
 [package]
-name = "tokio-linux-io"
+name = "tokio-linux-zio"
 version = "0.1.0"
 authors = ["quininer <quininer@live.com>"]
+license = "MIT"
+description = "Linux zero-copy IO"
+categories = ["cryptography", "network-programming"]
 edition = "2018"
 
 [dependencies]
