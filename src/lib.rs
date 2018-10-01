@@ -12,7 +12,8 @@ pub use crate::splice::*;
 pub use crate::tee::*;
 
 
-pub struct Pipe(RawFd);
+#[derive(Debug, Clone)]
+pub struct Pipe(pub RawFd);
 
 impl Pipe {
     pub fn new() -> io::Result<(Pipe, Pipe)> {

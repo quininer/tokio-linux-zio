@@ -24,11 +24,15 @@ enum State<R, W> {
     End
 }
 
-pub fn splice<R: AsRawFd, W: AsRawFd>(reader: R, writer: W) -> Splice<R, W> {
+pub fn splice<
+    R: AsRawFd,
+    W: AsRawFd,
+    L: Into<Option<usize>>
+>(reader: R, writer: W, len: L) -> Splice<R, W> {
     Splice(State::Writing {
         reader, writer,
         off_in: None, off_out: None,
-        buff_len: PIPE_BUF, len: None,
+        buff_len: PIPE_BUF, len: len.into(),
         flags: SpliceFFlags::SPLICE_F_NONBLOCK,
         sum: 0
     })
@@ -73,7 +77,7 @@ impl<R: AsRawFd, W: AsRawFd> Future for Splice<R, W> {
                         if let Some(len) = len {
                             *len -= n;
                         }
-                        *sum += n
+                        *sum += n;
                     },
                     Err(ref err) if io::ErrorKind::WouldBlock == err.kind()
                         => return Ok(Async::NotReady),
