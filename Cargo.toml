@@ -6,7 +6,7 @@ license = "MIT"
 repository = "https://github.com/quininer/tokio-linux-zio"
 description = "Linux Zero-Copy IO"
 categories = ["network-programming"]
-keywords = ["linux", "zero-copy", "sendfile", "splice", "tee", "pipe"]
+keywords = ["linux", "zero-copy", "sendfile", "splice", "pipe"]
 edition = "2018"
 
 [dependencies]
