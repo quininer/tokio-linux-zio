@@ -52,7 +52,7 @@ fn test_socket_splice() {
 
     let done = TcpStream::connect(&addr)
         .and_then(|stream| aio::write_all(stream, b"\x0cHello world!"))
-        .and_then(|(stream, _)| zio::splice(stream, pw))
+        .and_then(|(stream, _)| zio::splice(stream, pw, None))
         .map(|(.., len)| len);
 
     let len = current_thread::block_on_all(done).unwrap();
