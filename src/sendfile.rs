@@ -25,7 +25,7 @@ enum State<IO> {
 pub fn sendfile<IO, R>(io: IO, fd: fs::File, range: R)
     -> SendFile<IO>
 where
-    IO: AsRawFd,
+    IO: AsRawFd + io::Write,
     R: RangeBounds<usize>
 {
     let offset = match range.start_bound() {
