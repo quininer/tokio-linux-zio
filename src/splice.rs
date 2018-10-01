@@ -24,11 +24,7 @@ enum State<R, W> {
     End
 }
 
-pub fn splice<
-    R: AsRawFd,
-    W: AsRawFd,
-    L: Into<Option<usize>>
->(reader: R, writer: W, len: L) -> Splice<R, W> {
+pub fn splice<R: AsRawFd, W: AsRawFd>(reader: R, writer: W, len: Option<usize>) -> Splice<R, W> {
     Splice(State::Writing {
         reader, writer,
         off_in: None, off_out: None,

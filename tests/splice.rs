@@ -48,16 +48,16 @@ fn run_server() -> SocketAddr {
 fn test_socket_splice() {
     let addr = run_server();
 
-    let (pr, pw) = zio::Pipe::new().unwrap();
+    let (mut pr, mut pw) = zio::Pipe::new().unwrap();
+    pr.set_nonblocking(true).unwrap();
+    pw.set_nonblocking(true).unwrap();
 
     let done = TcpStream::connect(&addr)
         .and_then(|stream| aio::write_all(stream, b"\x0cHello world!"))
         .and_then(|(stream, _)| zio::splice(stream, pw, None))
-        .map(|(.., len)| len);
+        .and_then(move |(.., len)| aio::read_exact(pr, vec![0; len]));
 
-    let len = current_thread::block_on_all(done).unwrap();
+    let (_, buf) = current_thread::block_on_all(done).unwrap();
 
-    let mut buf = vec![0; len];
-    unistd::read(pr.as_raw_fd(), &mut buf).unwrap();
     assert_eq!(buf, b"Hello world!");
 }
