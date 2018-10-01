@@ -1,0 +1,5 @@
+language: rust
+os: linux
+rust: nightly
+cache: cargo
+

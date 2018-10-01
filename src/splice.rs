@@ -26,9 +26,9 @@ enum State<R, W> {
 
 pub fn splice<R: AsRawFd, W: AsRawFd>(reader: R, writer: W, len: Option<usize>) -> Splice<R, W> {
     Splice(State::Writing {
-        reader, writer,
+        reader, writer, len,
         off_in: None, off_out: None,
-        buff_len: PIPE_BUF, len: len.into(),
+        buff_len: PIPE_BUF,
         flags: SpliceFFlags::SPLICE_F_NONBLOCK,
         sum: 0
     })

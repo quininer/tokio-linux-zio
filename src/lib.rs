@@ -19,13 +19,13 @@ pub use crate::splice::*;
 pub use crate::tee::*;
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum R {}
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum W {}
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Pipe<T>(pub RawFd, PhantomData<T>);
 
 pub fn pipe() -> io::Result<(Pipe<R>, Pipe<W>)> {

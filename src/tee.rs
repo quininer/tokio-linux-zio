@@ -1,13 +1,13 @@
 use std::io;
 use std::rc::Rc;
 use std::os::unix::io::AsRawFd;
-use nix::libc::PIPE_BUF;
 use nix::fcntl::{ SpliceFFlags, tee as nix_tee };
 use tokio::prelude::*;
 use crate::common::io_err;
 use crate::{ Pipe, R, W };
 
 
+#[derive(Debug)]
 pub struct Tee {
     input: Rc<Pipe<R>>,
     output: Rc<Pipe<W>>,
@@ -19,7 +19,7 @@ pub fn tee(input: Pipe<R>, output: Pipe<W>) -> Tee {
     Tee {
         input: Rc::new(input),
         output: Rc::new(output),
-        len: PIPE_BUF,
+        len: usize::max_value(),
         flags: SpliceFFlags::SPLICE_F_NONBLOCK,
     }
 }

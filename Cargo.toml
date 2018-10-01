@@ -3,14 +3,16 @@ name = "tokio-linux-zio"
 version = "0.1.0"
 authors = ["quininer <quininer@live.com>"]
 license = "MIT"
-description = "Linux zero-copy IO"
-categories = ["cryptography", "network-programming"]
+repository = "https://github.com/quininer/tokio-linux-zio"
+description = "Linux Zero-Copy IO"
+categories = ["network-programming"]
+keywords = ["linux", "zero-copy", "sendfile", "splice", "tee", "pipe"]
 edition = "2018"
 
 [dependencies]
 tokio = "0.1"
-bytes = "*"
-iovec = "*"
+bytes = "0.4"
+iovec = "0.1"
 nix = "0.11"
 
 [dev-dependencies]
