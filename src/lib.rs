@@ -4,6 +4,7 @@ mod splice;
 mod tee;
 
 use std::{ io, slice };
+use std::marker::PhantomData;
 use std::os::unix::io::{ AsRawFd, RawFd };
 use nix::unistd;
 use nix::sys::uio;
@@ -19,14 +20,20 @@ pub use crate::tee::*;
 
 
 #[derive(Debug, Clone)]
-pub struct Pipe(pub RawFd);
+pub enum R {}
 
-impl Pipe {
-    pub fn new() -> io::Result<(Pipe, Pipe)> {
-        let (pr, pw) = unistd::pipe().map_err(io_err)?;
-        Ok((Pipe(pr), Pipe(pw)))
-    }
+#[derive(Debug, Clone)]
+pub enum W {}
 
+#[derive(Debug, Clone)]
+pub struct Pipe<T>(pub RawFd, PhantomData<T>);
+
+pub fn pipe() -> io::Result<(Pipe<R>, Pipe<W>)> {
+    let (pr, pw) = unistd::pipe().map_err(io_err)?;
+    Ok((Pipe(pr, PhantomData), Pipe(pw, PhantomData)))
+}
+
+impl<T> Pipe<T> {
     pub fn set_nonblocking(&self, flag: bool) -> io::Result<()> {
         let mut oflag = fcntl(self.0, FcntlArg::F_GETFL)
             .map(OFlag::from_bits_truncate)
@@ -55,13 +62,13 @@ macro_rules! try_async {
     }
 }
 
-impl io::Read for Pipe {
+impl io::Read for Pipe<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         unistd::read(self.0, buf).map_err(io_err)
     }
 }
 
-impl io::Write for Pipe {
+impl io::Write for Pipe<W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         unistd::write(self.0, buf).map_err(io_err)
     }
@@ -71,13 +78,13 @@ impl io::Write for Pipe {
     }
 }
 
-impl AsyncRead for Pipe {
+impl AsyncRead for Pipe<R> {
     unsafe fn prepare_uninitialized_buffer(&self, _: &mut [u8]) -> bool {
         false
     }
 }
 
-impl AsyncWrite for Pipe {
+impl AsyncWrite for Pipe<W> {
     fn write_buf<B: Buf>(&mut self, buf: &mut B) -> Poll<usize, io::Error> {
         static DUMMY: &[u8] = &[0];
         let iovec = <&IoVec>::from(DUMMY);
@@ -99,16 +106,14 @@ impl AsyncWrite for Pipe {
     }
 }
 
-impl AsRawFd for Pipe {
+impl<T> AsRawFd for Pipe<T> {
     fn as_raw_fd(&self) -> RawFd {
         self.0
     }
 }
 
-/*
-impl Drop for Pipe {
+impl<T> Drop for Pipe<T> {
     fn drop(&mut self) {
         let _ = unistd::close(self.0);
     }
 }
-*/

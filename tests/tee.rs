@@ -7,8 +7,8 @@ use tokio_linux_zio as zio;
 
 #[test]
 fn test_tee() {
-    let (pr1, pw1) = zio::Pipe::new().unwrap();
-    let (pr2, pw2) = zio::Pipe::new().unwrap();
+    let (pr1, pw1) = zio::pipe().unwrap();
+    let (pr2, pw2) = zio::pipe().unwrap();
 
     let input = b"hello world!";
 

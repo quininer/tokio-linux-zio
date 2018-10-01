@@ -7,7 +7,7 @@ use tokio_linux_zio as zio;
 
 #[test]
 fn test_write_buf() {
-    let (pr, mut pw) = zio::Pipe::new().unwrap();
+    let (pr, mut pw) = zio::pipe().unwrap();
     pr.set_nonblocking(true).unwrap();
     pw.set_nonblocking(true).unwrap();
 

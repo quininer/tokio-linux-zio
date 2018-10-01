@@ -1,30 +1,32 @@
 use std::io;
+use std::rc::Rc;
 use std::os::unix::io::AsRawFd;
 use nix::libc::PIPE_BUF;
 use nix::fcntl::{ SpliceFFlags, tee as nix_tee };
 use tokio::prelude::*;
 use crate::common::io_err;
-use crate::Pipe;
+use crate::{ Pipe, R, W };
 
 
 pub struct Tee {
-    input: Pipe,
-    output: Pipe,
+    input: Rc<Pipe<R>>,
+    output: Rc<Pipe<W>>,
     len: usize,
     flags: SpliceFFlags
 }
 
-pub fn tee(input: Pipe, output: Pipe) -> Tee {
+pub fn tee(input: Pipe<R>, output: Pipe<W>) -> Tee {
     Tee {
-        input, output,
+        input: Rc::new(input),
+        output: Rc::new(output),
         len: PIPE_BUF,
         flags: SpliceFFlags::SPLICE_F_NONBLOCK,
     }
 }
 
 pub fn full_tee(
-    input: Pipe,
-    output: Pipe,
+    input: Rc<Pipe<R>>,
+    output: Rc<Pipe<W>>,
     len: usize,
     flags: SpliceFFlags
 ) -> Tee {
@@ -32,7 +34,7 @@ pub fn full_tee(
 }
 
 impl Stream for Tee {
-    type Item = (Pipe, Pipe, usize);
+    type Item = (Rc<Pipe<R>>, Rc<Pipe<W>>, usize);
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
