@@ -1,6 +1,6 @@
 [package]
 name = "tokio-linux-zio"
-version = "0.1.0"
+version = "0.2.0-alpha"
 authors = ["quininer <quininer@live.com>"]
 license = "MIT"
 repository = "https://github.com/quininer/tokio-linux-zio"

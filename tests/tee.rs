@@ -1,4 +1,4 @@
-use std::os::unix::io::AsRawFd;
+use std::io::Write;
 use nix::unistd;
 use tokio::prelude::*;
 use tokio::runtime::current_thread;
@@ -7,18 +7,18 @@ use tokio_linux_zio as zio;
 
 #[test]
 fn test_tee() {
-    let (pr1, pw1) = zio::pipe().unwrap();
-    let (pr2, pw2) = zio::pipe().unwrap();
+    let (pr1, mut pw1) = zio::pipe().unwrap();
+    let (mut pr2, pw2) = zio::pipe().unwrap();
 
     let input = b"hello world!";
 
-    unistd::write(pw1.as_raw_fd(), input).unwrap();
-    unistd::close(pw1.as_raw_fd()).unwrap();
+    pw1.write_all(input).unwrap();
+    drop(pw1);
 
     let done = zio::tee(pr1, pw2)
-        .map(|(i, _, l)| {
-            let mut tmp = vec![0; l];
-            unistd::read(i.as_raw_fd(), &mut tmp).unwrap();
+        .map(|(ifd, _, len)| {
+            let mut tmp = vec![0; len];
+            unistd::read(ifd, &mut tmp).unwrap();
             tmp
         })
         .concat2();
@@ -27,8 +27,8 @@ fn test_tee() {
 
     assert_eq!(output.len(), input.len());
 
-    let mut output2 = vec![0; output.len()];
-    unistd::read(pr2.as_raw_fd(), &mut output2).unwrap();
+    let mut output2 = Vec::new();
+    pr2.read_to_end(&mut output2).unwrap();
 
     assert_eq!(output, input);
     assert_eq!(output2, input);

@@ -33,6 +33,12 @@ pub fn pipe() -> io::Result<(Pipe<R>, Pipe<W>)> {
     Ok((Pipe(pr, PhantomData), Pipe(pw, PhantomData)))
 }
 
+impl<T> From<RawFd> for Pipe<T> {
+    fn from(fd: RawFd) -> Pipe<T> {
+        Pipe(fd, PhantomData)
+    }
+}
+
 impl<T> Pipe<T> {
     pub fn set_nonblocking(&self, flag: bool) -> io::Result<()> {
         let mut oflag = fcntl(self.0, FcntlArg::F_GETFL)

@@ -47,7 +47,12 @@ where
     SendFile(Ok(State::Writing { io, fd, offset, count, sum: 0 }))
 }
 
-pub fn full_sendfile<IO>(io: IO, fd: fs::File, offset: Option<off_t>, count: size_t) -> SendFile<IO> {
+pub fn full_sendfile<IO>(
+    io: IO,
+    fd: fs::File,
+    offset: Option<off_t>,
+    count: size_t
+) -> SendFile<IO> {
     SendFile(Ok(State::Writing { io, fd, offset, count, sum: 0 }))
 }
 
@@ -61,7 +66,9 @@ impl<IO: AsRawFd> Future for SendFile<IO> {
         }
 
         match self.0.as_mut() {
-            Ok(State::Writing { io, fd, ref mut offset, ref mut count, ref mut sum }) => while *count > 0 {
+            Ok(State::Writing { io, fd, ref mut offset, ref mut count, ref mut sum })
+                => while *count > 0
+            {
                 match nix_sendfile(io.as_raw_fd(), fd.as_raw_fd(), offset.as_mut(), *count)
                     .map_err(io_err)
                 {
