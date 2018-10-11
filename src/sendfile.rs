@@ -8,13 +8,13 @@ use crate::common::io_err;
 
 
 #[derive(Debug)]
-pub struct SendFile<IO>(io::Result<State<IO>>);
+pub struct SendFile<IO, Fd>(io::Result<State<IO, Fd>>);
 
 #[derive(Debug)]
-enum State<IO> {
+enum State<IO, Fd> {
     Writing {
         io: IO,
-        fd: fs::File,
+        fd: Fd,
         offset: Option<off_t>,
         count: size_t,
         sum: usize
@@ -23,7 +23,7 @@ enum State<IO> {
 }
 
 pub fn sendfile<IO, R>(io: IO, fd: fs::File, range: R)
-    -> SendFile<IO>
+    -> SendFile<IO, fs::File>
 where
     IO: AsRawFd + io::Write,
     R: RangeBounds<usize>
@@ -47,17 +47,17 @@ where
     SendFile(Ok(State::Writing { io, fd, offset, count, sum: 0 }))
 }
 
-pub fn full_sendfile<IO>(
+pub fn full_sendfile<IO, Fd>(
     io: IO,
-    fd: fs::File,
+    fd: Fd,
     offset: Option<off_t>,
     count: size_t
-) -> SendFile<IO> {
+) -> SendFile<IO, Fd> {
     SendFile(Ok(State::Writing { io, fd, offset, count, sum: 0 }))
 }
 
-impl<IO: AsRawFd> Future for SendFile<IO> {
-    type Item = (IO, fs::File, usize);
+impl<IO: AsRawFd, Fd: AsRawFd> Future for SendFile<IO, Fd> {
+    type Item = (IO, Fd, usize);
     type Error = io::Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
