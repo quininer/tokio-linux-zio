@@ -4,7 +4,7 @@ use std::os::unix::io::AsRawFd;
 use tokio::prelude::*;
 use nix::libc::{ off_t, size_t, };
 use nix::sys::sendfile::sendfile as nix_sendfile;
-use crate::common::io_err;
+use crate::common::cvt;
 
 
 #[derive(Debug)]
@@ -70,7 +70,7 @@ impl<IO: AsRawFd, Fd: AsRawFd> Future for SendFile<IO, Fd> {
                 => while *count > 0
             {
                 match nix_sendfile(io.as_raw_fd(), fd.as_raw_fd(), offset.as_mut(), *count)
-                    .map_err(io_err)
+                    .map_err(cvt)
                 {
                     Ok(0) => break,
                     Ok(n) => {

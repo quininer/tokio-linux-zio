@@ -3,7 +3,7 @@ use std::os::unix::io::AsRawFd;
 use tokio::prelude::*;
 use nix::libc::{ PIPE_BUF, loff_t };
 use nix::fcntl::{ SpliceFFlags, splice as nix_splice };
-use crate::common::io_err;
+use crate::common::cvt;
 
 
 #[derive(Debug)]
@@ -72,7 +72,7 @@ impl<R: AsRawFd, W: AsRawFd> Future for Splice<R, W> {
                     reader.as_raw_fd(), off_in.as_mut(),
                     writer.as_raw_fd(), off_out.as_mut(),
                     len2, flags
-                ).map_err(io_err) {
+                ).map_err(cvt) {
                     Ok(0) => break,
                     Ok(n) => {
                         if let Some(len) = len {

@@ -2,6 +2,7 @@ mod common;
 mod sendfile;
 mod splice;
 mod tee;
+mod tcpsink;
 
 use std::{ io, slice };
 use std::marker::PhantomData;
@@ -13,10 +14,11 @@ use tokio::prelude::*;
 use tokio::io::{ AsyncRead, AsyncWrite };
 use bytes::Buf;
 use iovec::IoVec;
-use crate::common::io_err;
+use crate::common::cvt;
 pub use crate::sendfile::*;
 pub use crate::splice::*;
 pub use crate::tee::*;
+pub use crate::tcpsink::*;
 
 
 #[derive(Debug)]
@@ -29,7 +31,7 @@ pub enum W {}
 pub struct Pipe<T>(pub RawFd, PhantomData<T>);
 
 pub fn pipe() -> io::Result<(Pipe<R>, Pipe<W>)> {
-    let (pr, pw) = unistd::pipe().map_err(io_err)?;
+    let (pr, pw) = unistd::pipe().map_err(cvt)?;
     Ok((Pipe(pr, PhantomData), Pipe(pw, PhantomData)))
 }
 
@@ -43,7 +45,7 @@ impl<T> Pipe<T> {
     pub fn set_nonblocking(&self, flag: bool) -> io::Result<()> {
         let mut oflag = fcntl(self.0, FcntlArg::F_GETFL)
             .map(OFlag::from_bits_truncate)
-            .map_err(io_err)?;
+            .map_err(cvt)?;
 
         if flag {
             oflag.insert(OFlag::O_NONBLOCK);
@@ -53,7 +55,7 @@ impl<T> Pipe<T> {
 
         fcntl(self.0, FcntlArg::F_SETFL(oflag))
             .map(drop)
-            .map_err(io_err)
+            .map_err(cvt)
     }
 }
 
@@ -70,13 +72,13 @@ macro_rules! try_async {
 
 impl io::Read for Pipe<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        unistd::read(self.0, buf).map_err(io_err)
+        unistd::read(self.0, buf).map_err(cvt)
     }
 }
 
 impl io::Write for Pipe<W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        unistd::write(self.0, buf).map_err(io_err)
+        unistd::write(self.0, buf).map_err(cvt)
     }
 
     fn flush(&mut self) -> io::Result<()> {
@@ -104,11 +106,11 @@ impl AsyncWrite for Pipe<W> {
         };
 
         try_async!(vmsplice(self.0, bufs, SpliceFFlags::SPLICE_F_NONBLOCK)
-            .map_err(io_err))
+            .map_err(cvt))
     }
 
     fn shutdown(&mut self) -> Poll<(), io::Error> {
-        try_async!(unistd::close(self.0).map_err(io_err))
+        try_async!(unistd::close(self.0).map_err(cvt))
     }
 }
 

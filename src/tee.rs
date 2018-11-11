@@ -2,7 +2,7 @@ use std::io;
 use std::os::unix::io::{ AsRawFd, RawFd };
 use nix::fcntl::{ SpliceFFlags, tee as nix_tee };
 use tokio::prelude::*;
-use crate::common::io_err;
+use crate::common::cvt;
 use crate::{ Pipe, R, W };
 
 
@@ -41,7 +41,7 @@ impl Stream for Tee {
         let ifd = input.as_raw_fd();
         let ofd = output.as_raw_fd();
 
-        match nix_tee(ifd, ofd, len, flags).map_err(io_err) {
+        match nix_tee(ifd, ofd, len, flags).map_err(cvt) {
             Ok(0) => Ok(Async::Ready(None)),
             Ok(n) => Ok(Async::Ready(Some((ifd, ofd, n)))),
             Err(ref err) if io::ErrorKind::WouldBlock == err.kind()
