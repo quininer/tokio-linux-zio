@@ -1,97 +1,75 @@
-use std::{ cmp, mem, io };
-use std::os::unix::io::AsRawFd;
-use tokio::prelude::*;
-use nix::libc::{ PIPE_BUF, loff_t };
-use nix::fcntl::{ SpliceFFlags, splice as nix_splice };
-use crate::common::io_err;
+use std::{ io, ptr, future };
+use std::task::Poll;
+use std::os::unix::io::{ AsRawFd, RawFd };
+use tokio::io::unix::AsyncFd;
 
 
-#[derive(Debug)]
-pub struct Splice<R, W>(State<R, W>);
-
-#[derive(Debug)]
-enum State<R, W> {
-    Writing {
-        reader: R,
-        writer: W,
-        off_in: Option<loff_t>,
-        off_out: Option<loff_t>,
-        buff_len: usize,
-        len: Option<usize>,
-        flags: SpliceFFlags,
-        sum: usize
-    },
-    End
-}
-
-pub fn splice<R, W>(reader: R, writer: W, len: Option<usize>)
-    -> Splice<R, W>
+pub async fn splice<R, W>(
+    reader: impl AsRef<AsyncFd<R>>,
+    writer: impl AsRef<AsyncFd<W>>,
+    len: Option<usize>
+)
+    -> io::Result<usize>
 where
-    R: AsRawFd + io::Read,
-    W: AsRawFd + io::Write
+    R: AsRawFd,
+    W: AsRawFd
 {
-    Splice(State::Writing {
-        reader, writer, len,
-        off_in: None, off_out: None,
-        buff_len: PIPE_BUF,
-        flags: SpliceFFlags::SPLICE_F_NONBLOCK,
-        sum: 0
-    })
-}
+    let reader = reader.as_ref();
+    let writer = writer.as_ref();
+    let mut count = 0;
 
-pub fn full_splice<R: AsRawFd, W: AsRawFd>(
-    reader: R,
-    off_in: Option<loff_t>,
-    writer: W,
-    off_out: Option<loff_t>,
-    buff_len: usize,
-    len: Option<usize>,
-    flags: SpliceFFlags
-) -> Splice<R, W> {
-    Splice(State::Writing {
-        reader, writer, off_in, off_out,
-        buff_len, len, flags,
-        sum: 0
-    })
-}
+    while len != Some(count) {
+        let min_len = len.unwrap_or(libc::PIPE_BUF);
 
-impl<R: AsRawFd, W: AsRawFd> Future for Splice<R, W> {
-    type Item = (R, W, usize);
-    type Error = io::Error;
+        let eof = future::poll_fn(|cx| {
+            let reader_poll = reader.poll_read_ready(cx)?;
+            let writer_poll = writer.poll_write_ready(cx)?;
 
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        match self.0 {
-            State::Writing {
-                ref reader, ref mut off_in,
-                ref writer, ref mut off_out,
-                buff_len, ref mut len, flags,
-                ref mut sum
-            } => while len != &Some(0) {
-                let len2 = cmp::min(buff_len, len.unwrap_or(buff_len));
-                match nix_splice(
-                    reader.as_raw_fd(), off_in.as_mut(),
-                    writer.as_raw_fd(), off_out.as_mut(),
-                    len2, flags
-                ).map_err(io_err) {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        if let Some(len) = len {
-                            *len -= n;
-                        }
-                        *sum += n;
+            let (mut reader, mut writer) = match (reader_poll, writer_poll) {
+                (Poll::Ready(reader), Poll::Ready(writer)) => (reader, writer),
+                _ => return Poll::Pending
+            };
+
+            match splice_imp(
+                reader.get_ref().as_raw_fd(),
+                writer.get_ref().as_raw_fd(),
+                min_len
+            ) {
+                Ok(0) => Poll::Ready(Ok(true)),
+                Ok(n) => {
+                    count += n;
+                    Poll::Ready(Ok(false))
+                },
+                Err(ref err)
+                    if err.kind() == io::ErrorKind::WouldBlock => {
+                        reader.clear_ready();
+                        writer.clear_ready();
+                        Poll::Pending
                     },
-                    Err(ref err) if io::ErrorKind::WouldBlock == err.kind()
-                        => return Ok(Async::NotReady),
-                    Err(err) => return Err(err)
-                }
-            },
-            State::End => panic!()
-        }
+                Err(err) => Poll::Ready(Err(err))
+            }
+        }).await?;
 
-        match mem::replace(&mut self.0, State::End) {
-            State::Writing { reader, writer, sum, .. }
-                => Ok((reader, writer, sum).into()),
-            _ => panic!()
+        if eof {
+            break
+        }
+    }
+
+    Ok(count)
+}
+
+fn splice_imp(reader: RawFd, writer: RawFd, len: usize) -> io::Result<usize> {
+    unsafe {
+        match libc::splice(
+            reader,
+            ptr::null_mut(),
+            writer,
+            ptr::null_mut(),
+            len,
+            libc::SPLICE_F_NONBLOCK
+        ) {
+            -1 => Err(io::Error::last_os_error()),
+            n => Ok(n as usize)
         }
     }
 }
