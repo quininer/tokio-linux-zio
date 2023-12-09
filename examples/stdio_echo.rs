@@ -1,5 +1,6 @@
-use std::io;
-use std::net::SocketAddr;
+use std::{ io, future };
+use std::os::fd::AsRawFd;
+use std::net::{ SocketAddr, Shutdown };
 use tokio::net::{ TcpListener, TcpStream };
 use tokio::io::unix::AsyncFd;
 use tokio_linux_zio as zio;
@@ -20,9 +21,6 @@ async fn main() {
         }
     });
 
-    let (pr, pw) = zio::pipe().unwrap();
-    let (pr2, pw2) = zio::pipe().unwrap();
-
     let stdin = io::stdin();
     let stdout = io::stdout();
     zio::set_nonblocking(&stdin, true).unwrap();
@@ -34,10 +32,45 @@ async fn main() {
     let stream = stream.into_std().unwrap();
     let stream = AsyncFd::new(stream).unwrap();
 
-    tokio::select!{
-        ret = zio::splice(&stdin, pw.as_ref(), None) => ret.unwrap(),
-        ret = zio::splice(pr.as_ref(), &stream, None) => ret.unwrap(),
-        ret = zio::splice(&stream, pw2.as_ref(), None) => ret.unwrap(),
-        ret = zio::splice(pr2.as_ref(), &stdout, None) => ret.unwrap()
-    };
+    let (pr, pw) = zio::pipe().unwrap();
+    let (pr2, pw2) = zio::pipe().unwrap();
+    let mut pw = Some(pw);
+    let mut pw2 = Some(pw2);
+    let mut sw = Some(&stream);
+
+    loop {
+        tokio::select!{
+            ret = maybe_splice(&stdin, pw.as_ref().map(AsRef::as_ref)) => {
+                ret.unwrap();
+                pw.take();
+            },
+            ret = maybe_splice(pr.as_ref(), sw) => {
+                ret.unwrap();
+                sw.take();
+                stream.get_ref().shutdown(Shutdown::Write).unwrap();
+            },
+            ret = maybe_splice(&stream, pw2.as_ref().map(AsRef::as_ref)) => {
+                ret.unwrap();
+                pw2.take();
+            },
+            ret = zio::splice(pr2.as_ref(), &stdout, None) => {
+                ret.unwrap();
+                break
+            },
+        };
+    }
+}
+
+async fn maybe_splice<R, W>(reader: &AsyncFd<R>, writer: Option<&AsyncFd<W>>)
+    -> io::Result<usize>
+where
+    R: AsRawFd,
+    W: AsRawFd
+{
+    if let Some(writer) = writer {
+        zio::splice(reader, writer, None).await
+    } else {
+        future::pending::<()>().await;
+        Ok(0)
+    }
 }

@@ -16,6 +16,8 @@ pub use crate::tee::*;
 pub struct PipeRead(AsyncFd<OwnedFd>);
 pub struct PipeWrite(AsyncFd<OwnedFd>);
 
+pub struct UnixFile<T: AsRawFd>(AsyncFd<T>);
+
 pub fn pipe() -> io::Result<(PipeRead, PipeWrite)> {
     unsafe {
         let mut pipefd = [0; 2];
