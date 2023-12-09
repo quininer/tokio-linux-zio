@@ -32,6 +32,16 @@ pub fn pipe() -> io::Result<(PipeRead, PipeWrite)> {
     }
 }
 
+pub fn set_nonblocking<T: AsRawFd>(fd: &T, nb: bool) -> io::Result<()> {
+    unsafe {
+        let v = nb as libc::c_int;
+        match libc::ioctl(fd.as_raw_fd(), libc::FIONBIO, &v) {
+            -1 => Err(io::Error::last_os_error()),
+            _ => Ok(())
+        }
+    }
+}
+
 impl AsyncRead for PipeRead {
     fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>)
         -> Poll<io::Result<()>>
