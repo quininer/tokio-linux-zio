@@ -5,8 +5,8 @@ use tokio::io::unix::AsyncFd;
 
 
 pub async fn splice<R, W>(
-    reader: impl AsRef<AsyncFd<R>>,
-    writer: impl AsRef<AsyncFd<W>>,
+    reader: &AsyncFd<R>,
+    writer: &AsyncFd<W>,
     len: Option<usize>
 )
     -> io::Result<usize>
@@ -14,14 +14,14 @@ where
     R: AsRawFd,
     W: AsRawFd
 {
-    let reader = reader.as_ref();
-    let writer = writer.as_ref();
     let mut count = 0;
 
-    while len != Some(count) {
-        let min_len = len.unwrap_or(libc::PIPE_BUF);
+    while len.is_none() || len > Some(count) {
+        let min_len = len
+            .map(|len| len - count)
+            .unwrap_or(libc::PIPE_BUF);
 
-        let eof = future::poll_fn(|cx| {
+        let eof = future::poll_fn(|cx| loop {
             let reader_poll = reader.poll_read_ready(cx)?;
             let writer_poll = writer.poll_write_ready(cx)?;
 
@@ -30,7 +30,7 @@ where
                 _ => return Poll::Pending
             };
 
-            match splice_imp(
+            return match splice_imp(
                 reader.get_ref().as_raw_fd(),
                 writer.get_ref().as_raw_fd(),
                 min_len
@@ -42,12 +42,13 @@ where
                 },
                 Err(ref err)
                     if err.kind() == io::ErrorKind::WouldBlock => {
+                        // register again
                         reader.clear_ready();
                         writer.clear_ready();
-                        Poll::Pending
+                        continue
                     },
                 Err(err) => Poll::Ready(Err(err))
-            }
+            };
         }).await?;
 
         if eof {

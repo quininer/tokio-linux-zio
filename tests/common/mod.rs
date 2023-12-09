@@ -1,39 +1,30 @@
-use std::thread;
-use std::sync::mpsc::channel;
 use std::net::SocketAddr;
-use std::sync::OnceLock;
+use tokio::sync::{ oneshot, OnceCell };
 use tokio::net::TcpListener;
-use tokio::runtime::current_thread;
 
 
-static TEST_SERVER: OnceLock<SocketAddr> = OnceLock::new();
+static TEST_SERVER: OnceCell<SocketAddr> = OnceCell::const_new();
 
-fn init_server() -> SocketAddr {
-    let (send, recv) = channel();
+async fn init_server() -> SocketAddr {
+    let (send, recv) = oneshot::channel();
 
-    thread::spawn(move || {
+    tokio::spawn(async move {
         let addr = SocketAddr::from(([127, 0, 0, 1], 0));
-        let listener = TcpListener::bind(&addr).unwrap();
+        let listener = TcpListener::bind(&addr).await.unwrap();
 
         send.send(listener.local_addr().unwrap()).unwrap();
 
-        let done = listener.incoming()
-            .for_each(|stream| {
-                let done = aio::read_exact(stream, [0; 1])
-                    .and_then(|(stream, buf)| aio::read_exact(stream, vec![0; buf[0] as usize]))
-                    .and_then(|(stream, buf)| aio::write_all(stream, buf))
-                    .map(drop)
-                    .map_err(|err| eprintln!("{:?}", err));
-                tokio::spawn(done);
-                Ok(())
+        while let Ok((mut stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let (mut r, mut w) = stream.split();
+                tokio::io::copy(&mut r, &mut w).await.unwrap();
             });
-
-        current_thread::block_on_all(done).unwrap();
+        }
     });
 
-    recv.recv().unwrap()
+    recv.await.unwrap()
 }
 
-pub fn get_server() -> SocketAddr {
-    *TEST_SERVER.get_or_init(init_server)
+pub async fn get_server() -> SocketAddr {
+    *TEST_SERVER.get_or_init(init_server).await
 }

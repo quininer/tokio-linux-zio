@@ -7,8 +7,11 @@ repository = "https://github.com/quininer/tokio-linux-zio"
 description = "Linux Zero-Copy IO"
 categories = ["network-programming"]
 keywords = ["linux", "zero-copy", "sendfile", "splice", "pipe"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 tokio = { version = "1", features = [ "net" ] }
 libc = "0.2"
+
+[dev-dependencies]
+tokio = { version = "1", features = [ "full" ] }

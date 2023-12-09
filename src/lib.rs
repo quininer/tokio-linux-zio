@@ -1,6 +1,6 @@
-// mod sendfile;
+mod sendfile;
 mod splice;
-// mod tee;
+mod tee;
 
 use std::io;
 use std::pin::Pin;
@@ -8,9 +8,9 @@ use std::task::{ ready, Context, Poll };
 use std::os::unix::io::{ AsRawFd, RawFd, FromRawFd, OwnedFd };
 use tokio::io::{ AsyncRead, AsyncWrite, ReadBuf, Interest };
 use tokio::io::unix::AsyncFd;
-// pub use crate::sendfile::*;
+pub use crate::sendfile::*;
 pub use crate::splice::*;
-// pub use crate::tee::*;
+pub use crate::tee::*;
 
 
 pub struct PipeRead(AsyncFd<OwnedFd>);
@@ -23,7 +23,7 @@ pub fn pipe() -> io::Result<(PipeRead, PipeWrite)> {
             -1 => Err(io::Error::last_os_error()),
             _ => {
                 let pr = OwnedFd::from_raw_fd(pipefd[0]);
-                let pw = OwnedFd::from_raw_fd(pipefd[0]);
+                let pw = OwnedFd::from_raw_fd(pipefd[1]);
                 let pr = AsyncFd::with_interest(pr, Interest::READABLE)?;
                 let pw = AsyncFd::with_interest(pw, Interest::WRITABLE)?;
                 Ok((PipeRead(pr), PipeWrite(pw)))

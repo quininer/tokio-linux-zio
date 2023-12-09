@@ -1,31 +1,13 @@
-use std::{ fs, io, mem };
-use std::ops::{ RangeBounds, Bound };
-use std::os::unix::io::AsRawFd;
-use tokio::prelude::*;
-use nix::libc::{ off_t, size_t, };
-use nix::sys::sendfile::sendfile as nix_sendfile;
-use crate::common::io_err;
+use std::{ fs, io };
+use std::ops::{ Bound, RangeBounds };
+use std::os::unix::io::{ AsRawFd, RawFd };
+use tokio::io::unix::AsyncFd;
 
 
-#[derive(Debug)]
-pub struct SendFile<IO, Fd>(io::Result<State<IO, Fd>>);
-
-#[derive(Debug)]
-enum State<IO, Fd> {
-    Writing {
-        io: IO,
-        fd: Fd,
-        offset: Option<off_t>,
-        count: size_t,
-        sum: usize
-    },
-    End
-}
-
-pub fn sendfile<IO, R>(io: IO, fd: fs::File, range: R)
-    -> SendFile<IO, fs::File>
+pub async fn sendfile<W, R>(writer: &AsyncFd<W>, fd: &fs::File, range: R)
+    -> io::Result<usize>
 where
-    IO: AsRawFd + io::Write,
+    W: AsRawFd,
     R: RangeBounds<usize>
 {
     let offset = match range.start_bound() {
@@ -33,61 +15,51 @@ where
         Bound::Unbounded => 0
     };
 
-    let count = match range.end_bound() {
+    let len = match range.end_bound() {
         Bound::Excluded(&y) => y - offset,
         Bound::Included(&y) => y + 1 - offset,
         Bound::Unbounded => match fd.metadata() {
             Ok(metadata) => metadata.len() as _,
-            Err(err) => return SendFile(Err(err))
+            Err(err) => return Err(err)
         }
     };
 
-    let offset = Some(offset as _);
+    let mut offset = offset as _;
+    let mut count = 0;
 
-    SendFile(Ok(State::Writing { io, fd, offset, count, sum: 0 }))
+    while len > count {
+        let len = len - count;
+
+        let mut guard = writer.writable().await?;
+
+        match guard.try_io(|inner| sendfile_imp(
+            inner.get_ref().as_raw_fd(),
+            fd.as_raw_fd(),
+            &mut offset,
+            len
+        )) {
+            Ok(Ok(0)) => break,
+            Ok(Ok(n)) => count += n,
+            Ok(Err(err)) => return Err(err),
+            Err(_would_block) => continue
+        }
+    }
+
+    Ok(count)
 }
 
-pub fn full_sendfile<IO, Fd>(
-    io: IO,
-    fd: Fd,
-    offset: Option<off_t>,
-    count: size_t
-) -> SendFile<IO, Fd> {
-    SendFile(Ok(State::Writing { io, fd, offset, count, sum: 0 }))
-}
-
-impl<IO: AsRawFd, Fd: AsRawFd> Future for SendFile<IO, Fd> {
-    type Item = (IO, Fd, usize);
-    type Error = io::Error;
-
-    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        if self.0.is_err() {
-            mem::replace(&mut self.0, Ok(State::End))?;
-        }
-
-        match self.0.as_mut() {
-            Ok(State::Writing { io, fd, ref mut offset, ref mut count, ref mut sum })
-                => while *count > 0
-            {
-                match nix_sendfile(io.as_raw_fd(), fd.as_raw_fd(), offset.as_mut(), *count)
-                    .map_err(io_err)
-                {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        *count -= n;
-                        *sum += n;
-                    },
-                    Err(ref err) if io::ErrorKind::WouldBlock == err.kind()
-                        => return Ok(Async::NotReady),
-                    Err(err) => return Err(err)
-                }
-            },
-            _ => panic!()
-        }
-
-        match mem::replace(&mut self.0, Ok(State::End)) {
-            Ok(State::Writing { io, fd, sum, .. }) => Ok((io, fd, sum).into()),
-            _ => panic!()
+fn sendfile_imp(writer: RawFd, reader: RawFd, offset: &mut libc::off_t, len: usize)
+    -> io::Result<usize>
+{
+    unsafe {
+        match libc::sendfile(
+            writer,
+            reader,
+            offset,
+            len
+        ) {
+            -1 => Err(io::Error::last_os_error()),
+            n => Ok(n as usize)
         }
     }
 }

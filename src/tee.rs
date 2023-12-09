@@ -1,52 +1,53 @@
-use std::io;
+use std::{ io, future };
+use std::task::Poll;
 use std::os::unix::io::{ AsRawFd, RawFd };
-use nix::fcntl::{ SpliceFFlags, tee as nix_tee };
-use tokio::prelude::*;
-use crate::common::io_err;
-use crate::{ Pipe, R, W };
+use tokio::io::unix::AsyncFd;
 
 
-#[derive(Debug)]
-pub struct Tee {
-    input: Pipe<R>,
-    output: Pipe<W>,
-    len: usize,
-    flags: SpliceFFlags
+pub async fn tee<R, W>(
+    reader: &AsyncFd<R>,
+    writer: &AsyncFd<W>,
+    len: usize
+)
+    -> io::Result<usize>
+where
+    R: AsRawFd,
+    W: AsRawFd
+{
+    future::poll_fn(|cx| loop {
+        let reader_poll = reader.poll_read_ready(cx)?;
+        let writer_poll = writer.poll_write_ready(cx)?;
+
+        let (mut reader, mut writer) = match (reader_poll, writer_poll) {
+            (Poll::Ready(reader), Poll::Ready(writer)) => (reader, writer),
+            _ => return Poll::Pending
+        };
+
+        return match tee_imp(
+            reader.get_ref().as_raw_fd(),
+            writer.get_ref().as_raw_fd(),
+            len
+        ) {
+            Ok(n) => Poll::Ready(Ok(n)),
+            Err(ref err)
+                if err.kind() == io::ErrorKind::WouldBlock => {
+                    // register again
+                    reader.clear_ready();
+                    writer.clear_ready();
+                    continue
+                },
+            Err(err) => Poll::Ready(Err(err))
+        };
+    }).await
 }
 
-pub fn tee(input: Pipe<R>, output: Pipe<W>) -> Tee {
-    Tee {
-        input: input,
-        output: output,
-        len: usize::max_value(),
-        flags: SpliceFFlags::SPLICE_F_NONBLOCK,
-    }
-}
-
-pub fn full_tee(
-    input: Pipe<R>,
-    output: Pipe<W>,
-    len: usize,
-    flags: SpliceFFlags
-) -> Tee {
-    Tee { input, output, len, flags }
-}
-
-impl Stream for Tee {
-    type Item = (RawFd, RawFd, usize);
-    type Error = io::Error;
-
-    fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-        let Tee { ref input, ref output, len, flags } = *self;
-        let ifd = input.as_raw_fd();
-        let ofd = output.as_raw_fd();
-
-        match nix_tee(ifd, ofd, len, flags).map_err(io_err) {
-            Ok(0) => Ok(Async::Ready(None)),
-            Ok(n) => Ok(Async::Ready(Some((ifd, ofd, n)))),
-            Err(ref err) if io::ErrorKind::WouldBlock == err.kind()
-                => Ok(Async::NotReady),
-            Err(err) => Err(err)
+fn tee_imp(fd_in: RawFd, fd_out: RawFd, len: usize)
+    -> io::Result<usize>
+{
+    unsafe {
+        match libc::tee(fd_in, fd_out, len, libc::SPLICE_F_NONBLOCK) {
+            -1 => Err(io::Error::last_os_error()),
+            n => Ok(n as usize)
         }
     }
 }
